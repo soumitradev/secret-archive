@@ -23,7 +23,7 @@ My thinking process is documented in the [Jupyter Notebook](./archive.ipynb).
 I'm trying my best. If you really hate it that bad, just create an Issue or Pull Request.
 
 ## You're collecting my data!
-No. The code is open source. It doesn't even accecss the internet. I don't want to see your weird compressed files anyway.
+No. The code is open source. It doesn't even access the internet. I don't want to see your weird compressed files anyway.
 
 ## License
 [MIT License](./LICENSE)
