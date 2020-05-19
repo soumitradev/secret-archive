@@ -1,23 +1,22 @@
 import gnupg
 import gzip
 import json
+import os
 import re
 import shutil
-
 from pathlib import Path
-import os
 
-def compress(filename):
+def compress(filename, saveasname):
     datapath = Path("./import/"  + filename)
     vaultpath = Path("./vault/")
     if datapath.exists():
         with open(datapath, 'rb') as f_in:
-            with gzip.open(vaultpath / (datapath.stem + ".gz"), 'wb') as f_out:
+            with gzip.open(vaultpath / (saveasname + ".gz"), 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'import' folder")
 
-def encrypt(filename):
+def encrypt(filename, saveasname):
     vaultpath = Path("./vault/")
     datapath = vaultpath / Path(filename)
     if datapath.exists():
@@ -29,7 +28,7 @@ def encrypt(filename):
         fp = key.fingerprint
 
         with open(datapath, 'rb') as comp_in:
-            encrypted_ascii_data = gpg.encrypt_file(comp_in, fp, output = vaultpath / datapath.stem)
+            encrypted_ascii_data = gpg.encrypt_file(comp_in, fp, output = vaultpath / saveasname)
     
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
@@ -58,54 +57,71 @@ def decompress(filename):
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
 
-# Our registry will be in the form of a dictionary. final name is key, and original extension is value.
-def addtoreg(final, originalext):
+def getpropername(name, extension):
     registry = {}
     regpath = Path("./registry.json")
-    
+
 #     If registry file exists,
     if regpath.exists():
 #         Load the registry into the variable
         with open(regpath, "rb") as regfile:
             registry = json.load(regfile)
-#         If such an encrypted file doesn't already exist, add it to registry and write registry to disk
-        if not (final in registry):
-            with open(regpath, "w") as regfile:
-                registry[final] = originalext
-                json.dump(registry, regfile)
+#         If such an encrypted file doesn't already exist, return the name the user wanted
+        if not (name in registry):
+            return name
                 
 #         If such an encrypted file exists, ask if user wants to rename it.
         else:
 #         Nice litte code block that finds the new name for the renamed file
 #         If the file name ends in a number enclosed in brackets, increment the number for the new name until such a file doesn't exist
-            if re.match(".*\(\d\)", final):
-                newname = final
-                while (newname in registry):
-                    name = final.split("(")[0]
-                    number = int(final.split("(")[1][:-1])
-                    newname = name + "(" + str(number + 1) + ")"
-#         Else, just add a ' (1)' at the end of the file
-            else:
-                newname = final + " (1)"
+            newname = name
+            while (newname in registry):
+                if re.match(".*\(\d\)", newname):
+                    while (newname in registry):
+                        initial_part = newname.split("(")[0]
+                        number = int(newname.split("(")[1][:-1])
+                        newname = initial_part + "(" + str(number + 1) + ")"
+    #         Else, just add a ' (1)' at the end of the file
+                else:
+                    newname += " (1)"
             
 #             Print error and input prompt
-            print("Another encrypted file with the same name already exists. It has the extension ." + registry[final] + " Do you want to:\n    [1] - Replace the existing encrypted file\n    [2] - Save the new encrypted file as " + newname)
+            print("Another encrypted file with the same name already exists. It has the extension ." + registry[name] + " Do you want to:\n    [1] - Replace the existing encrypted file\n    [2] - Save the new encrypted file as " + newname)
             k = input()
         
 #             Validate input
             while not (k in ["1", "2"]):
-                print("\nPlease enter valid input.\nAnother encrypted file with the same name already exists. It has the extension ." + registry[final] + " Do you want to:\n    [1] - Replace the existing encrypted file\n    [2] - Save the new encrypted file as " + newname)
+                print("\nPlease enter valid input.\nAnother encrypted file with the same name already exists. It has the extension ." + registry[name] + " Do you want to:\n    [1] - Replace the existing encrypted file\n    [2] - Save the new encrypted file as " + newname)
                 k = input()
             
-#             Perform action as per input
+#             Return name/newname as per input
             if k == "1":
-                registry[final] = originalext
+                return name
             else:
-                registry[newname] = originalext
+                return newname
                 
-#             Write registry to disk
-            with open(regpath, "w") as regfile:
-                json.dump(registry, regfile)
+#     If registry file doesn't exist, return the original name the user intended
+    else:
+        return name
+
+
+
+# Our registry will be in the form of a dictionary. final name is key, and original extension is value.
+def addtoreg(final, originalext):
+    registry = {}
+    regpath = Path("./registry.json")
+
+#     If registry file exists,
+    if regpath.exists():
+#         Load the registry into the variable
+        with open(regpath, "rb") as regfile:
+            registry = json.load(regfile)
+
+        with open(regpath, "w") as regfile:
+            registry[final] = originalext
+            json.dump(registry, regfile)
+                
+#         If such an encrypted file exists, ask if user wants to rename it.
 #     If registry file doesn't exist, add the file to registry and write it to a new registry file.
     else:
         with open(regpath, "w") as regfile:
@@ -127,12 +143,10 @@ def updatereg():
                 raise IOError("Unidentified file " + i.stem + " in vault")
         
         todel = []
-        print(list(vaultpath.glob("*")))
         for j in registry.keys():
             paths = list(vaultpath.glob("*"))
             names = []
             for m in paths:
-                print(m.stem)
                 names.append(m.stem)
             if not(j in names):
                 todel.append(j)
@@ -164,10 +178,11 @@ def init():
         stem = name.split(".")[0]
         ext = name.split(".")[1]
 
-        compress(name)
-        encrypt(stem + ".gz")
-        os.remove("./vault/" + stem + ".gz")
-        addtoreg(stem, ext)
+        finalname = getpropername(stem, ext)
+        compress(name, finalname)
+        encrypt((finalname + ".gz"), finalname)
+        os.remove("./vault/" + finalname + ".gz")
+        addtoreg(finalname, ext)
     else:
         print("Choose:")
         reg = getreg()
@@ -185,6 +200,5 @@ def init():
 init()
 
 # Known issues:
-# When file is added as "file (1)" into the registry, it is still encrypted and saved as "file"
 # If file doesn't have extension, what do?
 # Error handling and user input validation
