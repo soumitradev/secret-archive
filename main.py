@@ -39,8 +39,12 @@ def decrypt(filename, ext):
     vaultpath = Path("./vault/")
     datapath = vaultpath / Path(filename)
     if datapath.exists():
-        with open(datapath, 'rb') as dec:
-            decrypted_data = gpg.decrypt_file(dec, output = "./vault/" + datapath.stem + "." + ext + ".gz")
+        if ext:
+            with open(datapath, 'rb') as dec:
+                decrypted_data = gpg.decrypt_file(dec, output = "./vault/" + datapath.stem + "." + ext + ".gz")
+        else:
+            with open(datapath, 'rb') as dec:
+                decrypted_data = gpg.decrypt_file(dec, output = "./vault/" + datapath.stem + ".gz")
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
         
@@ -48,11 +52,16 @@ def decompress(filename):
     vaultpath = Path("./vault/")
     datapath = vaultpath / Path(filename)
     outpath = "./"
-    original_extension = datapath.stem.split(".")[-1]
-    name = datapath.stem.split(".")[0]
+    if "." in datapath.stem:
+        original_extension = + "." + datapath.stem.split(".")[-1]
+        name = datapath.stem.split(".")[0]
+    else:
+        original_extension = ""
+        name = datapath.stem
+
     if datapath.exists():
         with gzip.open(datapath, "rb") as f:
-            with open(outpath / Path(name + "." + original_extension), "wb") as fp:
+            with open(outpath / Path(name + original_extension), "wb") as fp:
                 shutil.copyfileobj(f, fp)
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
@@ -169,36 +178,81 @@ def getreg():
     return registry
 
 def init():
-    print("1: encrypt, compress and store in vault; 2: decrypt, decompress and give final file\n")
-    k = input()
+    print("Welcome to Secret Archive! Please choose an action:")
+    print("[1] - Compress, Encrypt and add file to vault\n[2] - Decrypt, Decompress and remove file from vault\n[3] - Force run algorithm on file")
+    k = input(":")
+    while not (k in ["1", "2", "3"]):
+        print("Please enter a valid command!")
+        print("[1] - Compress, Encrypt and add file to vault\n[2] - Decrypt, Decompress and remove file from vault\n[3] - Force run algorithm on file")
+        k = input(":")
+
     if k == "1":
         updatereg()
         print("Enter filename with extension: ")
         name = input()
-        stem = name.split(".")[0]
-        ext = name.split(".")[1]
+        if "." in name:
+            stem = name.split(".")[0]
+            ext = name.split(".")[1]
+        else:
+            ext = ""
+            stem = name
 
         finalname = getpropername(stem, ext)
         compress(name, finalname)
         encrypt((finalname + ".gz"), finalname)
         os.remove("./vault/" + finalname + ".gz")
         addtoreg(finalname, ext)
-    else:
+    elif k == "2":
         print("Choose:")
         reg = getreg()
         names = list(reg.keys())
         exts = list(reg.values())
         for i in range(len(reg.keys())):
-            print("[" + str(i) + "]: " + names[i] + " (." + exts[i] + " file)")
+            if exts[i]:
+                print("[" + str(i) + "]: " + names[i] + " (." + exts[i] + " file)")
+            else:
+                print("[" + str(i) + "]: " + names[i] + " (no extension known)")
         num = int(input())
         decrypt(names[num], exts[num])
-        decompress(names[num] + "." + exts[num] + ".gz")
-        os.remove("./vault/" + names[num] + "." + exts[num] + ".gz")
+        if exts[num]:
+            decompress(names[num] + "." + exts[num] + ".gz")
+            os.remove("./vault/" + names[num] + "." + exts[num] + ".gz")
+        else:
+            decompress(names[num] + ".gz")
+            os.remove("./vault/" + names[num] + ".gz")
         os.remove("./vault/" + names[num])
         updatereg()
+    else:
+        print("Which function do you want to force run?")
+        print("[1] - Compress file\n[2] - Encrypt file\n[3] - Decrypt file\n[4] - Decompress file")
+        choice = input(":")
+
+        while not (choice in ["1", "2", "3", "4"]):
+            print("Please enter a valid command!")
+            print("[1] - Compress file\n[2] - Encrypt file\n[3] - Decrypt file\n[4] - Decompress file")
+            choice = input(":")
+        
+        if choice == "1":
+            name = input("Move file to the 'import' folder and type the name here: ")
+            compress(name, name)
+            print("The compressed file is saved in the 'vault' folder.")
+        elif choice == "2":
+            name = input("Move file to the 'vault' folder and type the name here: ")
+            encrypt(name, name)
+            print("The encyrypted file is saved in the 'vault' folder.")
+        elif choice == "3":
+            name = input("Move file to the 'vault' folder and type the name here: ")
+            ext = input("Enter the extension of the file after decrypting: ")
+            finalname = getpropername(name, ext)
+            decrypt(finalname, ext)
+            if ext:
+                os.rename("./vault/" + finalname + "." + ext + ".gz", finalname + "." + ext)
+            else:
+                os.rename("./vault/" + finalname + "." + ext + ".gz", finalname)
+            print("The decrypted file is saved in the root folder of this program.")
+        else:
+            name = input("Move file to the 'vault' folder and type the name here: ")
+            decompress(name)
+            print("The decompressed file is saved in the root folder of this program.")
 
 init()
-
-# Known issues:
-# If file doesn't have extension, what do?
-# Error handling and user input validation
