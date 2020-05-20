@@ -22,5 +22,8 @@ I'm trying my best. If you really hate it that bad, just create an Issue or Pull
 ## You're collecting my data!
 No. The code is open source. It doesn't even access the internet. I don't want to see your weird compressed files anyway.
 
+## Thanks
+Thanks to [PseudoCodeNerd](https://github.com/PseudoCodeNerd/) for initial testing and bearing with my shitty code.
+
 ## License
 [MIT License](./LICENSE)
