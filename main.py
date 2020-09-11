@@ -6,6 +6,16 @@ import re
 import shutil
 from pathlib import Path
 
+GNUPG_HOME = "./keys/"
+VAULT_DIR = "./vault/"
+IMPORT_DIR = "./import/"
+OUT_PATH = "./out/"
+
+Path(GNUPG_HOME).mkdir(exist_ok=True)
+Path(VAULT_DIR).mkdir(exist_ok=True)
+Path(IMPORT_DIR).mkdir(exist_ok=True)
+Path(OUT_PATH).mkdir(exist_ok=True)
+
 def compress(filename, saveasname):
     datapath = Path("./import/"  + filename)
     vaultpath = Path("./vault/")
@@ -18,9 +28,9 @@ def compress(filename, saveasname):
 
 def encrypt(filename, saveasname):
     vaultpath = Path("./vault/")
-    datapath = vaultpath / Path(filename)
+    datapath = vaultpath / filename
     if datapath.exists():
-        gpg = gnupg.GPG()
+        gpg = gnupg.GPG(gnupghome=GNUPG_HOME)
         gpg.encoding = "utf-8"
 
 
@@ -34,34 +44,32 @@ def encrypt(filename, saveasname):
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
         
 def decrypt(filename, ext):
-    gpg = gnupg.GPG()
+    gpg = gnupg.GPG(gnupghome= GNUPG_HOME)
     gpg.encoding = "utf-8"
     vaultpath = Path("./vault/")
-    datapath = vaultpath / Path(filename)
+    datapath = vaultpath / filename
     if datapath.exists():
-        if ext:
-            with open(datapath, 'rb') as dec:
-                decrypted_data = gpg.decrypt_file(dec, output = "./vault/" + datapath.stem + "." + ext + ".gz")
-        else:
-            with open(datapath, 'rb') as dec:
-                decrypted_data = gpg.decrypt_file(dec, output = "./vault/" + datapath.stem + ".gz")
+        with open(datapath, 'rb') as dec:
+            decrypted_data = gpg.decrypt_file(dec, output = "./vault/" + datapath.name + (("." + ext) if ext else "") + ".gz")
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
         
 def decompress(filename):
     vaultpath = Path("./vault/")
-    datapath = vaultpath / Path(filename)
-    outpath = "./"
-    if "." in datapath.stem:
-        original_extension = + "." + datapath.stem.split(".")[-1]
-        name = datapath.stem.split(".")[0]
-    else:
-        original_extension = ""
-        name = datapath.stem
+    datapath = vaultpath / filename
+    output_dir = Path(OUT_PATH)
+    fin_name = datapath.stem
+
+    # if "." in datapath.stem:
+    #     original_extension = "." + datapath.stem.split(".")[-1]
+    #     name = datapath.stem.split(".")[0]
+    # else:
+    #     original_extension = ""
+    #     name = datapath.stem
 
     if datapath.exists():
         with gzip.open(datapath, "rb") as f:
-            with open(outpath / Path(name + original_extension), "wb") as fp:
+            with open(output_dir / fin_name, "wb") as fp:
                 shutil.copyfileobj(f, fp)
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
@@ -148,20 +156,14 @@ def updatereg():
             registry = json.load(regfile)
             
         for i in list(vaultpath.glob("*")):
-            if not (i.stem in registry):
-                raise IOError("Unidentified file " + i.stem + " in vault")
+            if not (i.name in registry):
+                raise IOError("Unidentified file " + i.name + " in vault")
         
-        todel = []
-        for j in registry.keys():
-            paths = list(vaultpath.glob("*"))
-            names = []
-            for m in paths:
-                names.append(m.stem)
-            if not(j in names):
-                todel.append(j)
+        todel = [k for k in registry.keys() if k not in [m.name for m in list(vaultpath.glob("*"))]]
         
         for k in todel:
-            registry.pop(k, None)
+            print(f"File {k} found in registry, but not in the 'vault' folder.")
+            # registry.pop(k, None)
 
         with open(regpath, "w") as regfile:
             json.dump(registry, regfile)
@@ -169,7 +171,6 @@ def updatereg():
 def getreg():
     updatereg()
     registry = {}
-    vaultpath = Path("./vault/")
     regpath = Path("./registry.json")
     
     if regpath.exists():
@@ -191,8 +192,8 @@ def init():
         print("Enter filename with extension: ")
         name = input()
         if "." in name:
-            stem = name.split(".")[0]
-            ext = name.split(".")[1]
+            stem = ".".join(name.split(".")[:-1])
+            ext = name.split(".")[-1]
         else:
             ext = ""
             stem = name
@@ -214,13 +215,10 @@ def init():
                 print("[" + str(i) + "]: " + names[i] + " (no extension known)")
         num = int(input())
         decrypt(names[num], exts[num])
-        if exts[num]:
-            decompress(names[num] + "." + exts[num] + ".gz")
-            os.remove("./vault/" + names[num] + "." + exts[num] + ".gz")
-        else:
-            decompress(names[num] + ".gz")
-            os.remove("./vault/" + names[num] + ".gz")
-        os.remove("./vault/" + names[num])
+        decompress(names[num] + "." + exts[num] + ".gz")
+        os.remove("./vault/" + names[num] + ("." + exts[num] if exts[num] else "") + ".gz")
+
+        # os.remove("./vault/" + names[num])
         updatereg()
     else:
         print("Which function do you want to force run?")
