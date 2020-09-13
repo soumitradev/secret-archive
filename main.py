@@ -1,4 +1,5 @@
 import gnupg
+import warnings
 import gzip
 import json
 import os
@@ -15,6 +16,16 @@ Path(GNUPG_HOME).mkdir(exist_ok=True)
 Path(VAULT_DIR).mkdir(exist_ok=True)
 Path(IMPORT_DIR).mkdir(exist_ok=True)
 Path(OUT_PATH).mkdir(exist_ok=True)
+
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
 
 def compress(filename, saveasname):
     datapath = Path("./import/"  + filename)
@@ -39,10 +50,10 @@ def encrypt(filename, saveasname):
 
         with open(datapath, 'rb') as comp_in:
             encrypted_ascii_data = gpg.encrypt_file(comp_in, fp, output = vaultpath / saveasname)
-    
+
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
-        
+
 def decrypt(filename, ext):
     gpg = gnupg.GPG(gnupghome= GNUPG_HOME)
     gpg.encoding = "utf-8"
@@ -53,7 +64,7 @@ def decrypt(filename, ext):
             decrypted_data = gpg.decrypt_file(dec, output = "./vault/" + datapath.name + (("." + ext) if ext else "") + ".gz")
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
-        
+
 def decompress(filename):
     vaultpath = Path("./vault/")
     datapath = vaultpath / filename
@@ -86,7 +97,6 @@ def getpropername(name, extension):
 #         If such an encrypted file doesn't already exist, return the name the user wanted
         if not (name in registry):
             return name
-                
 #         If such an encrypted file exists, ask if user wants to rename it.
         else:
 #         Nice litte code block that finds the new name for the renamed file
@@ -101,22 +111,18 @@ def getpropername(name, extension):
     #         Else, just add a ' (1)' at the end of the file
                 else:
                     newname += " (1)"
-            
 #             Print error and input prompt
             print("Another encrypted file with the same name already exists. It has the extension ." + registry[name] + " Do you want to:\n    [1] - Replace the existing encrypted file\n    [2] - Save the new encrypted file as " + newname)
             k = input()
-        
 #             Validate input
             while not (k in ["1", "2"]):
                 print("\nPlease enter valid input.\nAnother encrypted file with the same name already exists. It has the extension ." + registry[name] + " Do you want to:\n    [1] - Replace the existing encrypted file\n    [2] - Save the new encrypted file as " + newname)
                 k = input()
-            
 #             Return name/newname as per input
             if k == "1":
                 return name
             else:
                 return newname
-                
 #     If registry file doesn't exist, return the original name the user intended
     else:
         return name
@@ -137,7 +143,6 @@ def addtoreg(final, originalext):
         with open(regpath, "w") as regfile:
             registry[final] = originalext
             json.dump(registry, regfile)
-                
 #         If such an encrypted file exists, ask if user wants to rename it.
 #     If registry file doesn't exist, add the file to registry and write it to a new registry file.
     else:
@@ -150,19 +155,19 @@ def updatereg():
     registry = {}
     vaultpath = Path("./vault/")
     regpath = Path("./registry.json")
-    
+
     if regpath.exists():
         with open(regpath, "rb") as regfile:
             registry = json.load(regfile)
-            
+
         for i in list(vaultpath.glob("*")):
             if not (i.name in registry):
-                raise IOError("Unidentified file " + i.name + " in vault")
-        
+                print(bcolors.WARNING + "Warning: " + bcolors.ENDC + "Unidentified file " + i.name + " in vault")
+
         todel = [k for k in registry.keys() if k not in [m.name for m in list(vaultpath.glob("*"))]]
-        
+
         for k in todel:
-            print(f"File {k} found in registry, but not in the 'vault' folder.")
+            print(bcolors.WARNING + "Warning: " + bcolors.ENDC + "File " + k  + " found in registry, but not in the 'vault' folder.")
             # registry.pop(k, None)
 
         with open(regpath, "w") as regfile:
@@ -172,7 +177,7 @@ def getreg():
     updatereg()
     registry = {}
     regpath = Path("./registry.json")
-    
+
     if regpath.exists():
         with open(regpath, "rb") as regfile:
             registry = json.load(regfile)
@@ -203,6 +208,8 @@ def init():
         encrypt((finalname + ".gz"), finalname)
         os.remove("./vault/" + finalname + ".gz")
         addtoreg(finalname, ext)
+	print("FIle encrypted and saved in vault successfully.")
+	return
     elif k == "2":
         print("Choose:")
         reg = getreg()
@@ -215,11 +222,12 @@ def init():
                 print("[" + str(i) + "]: " + names[i] + " (no extension known)")
         num = int(input())
         decrypt(names[num], exts[num])
-        decompress(names[num] + "." + exts[num] + ".gz")
+        decompress(names[num] + ("." if exts[num] else "") + exts[num] + ".gz")
         os.remove("./vault/" + names[num] + ("." + exts[num] if exts[num] else "") + ".gz")
 
         # os.remove("./vault/" + names[num])
         updatereg()
+	print("File decrypted and saved in `out` folder successfully.")
     else:
         print("Which function do you want to force run?")
         print("[1] - Compress file\n[2] - Encrypt file\n[3] - Decrypt file\n[4] - Decompress file")
@@ -229,7 +237,7 @@ def init():
             print("Please enter a valid command!")
             print("[1] - Compress file\n[2] - Encrypt file\n[3] - Decrypt file\n[4] - Decompress file")
             choice = input(":")
-        
+
         if choice == "1":
             name = input("Move file to the 'import' folder and type the name here: ")
             compress(name, name)
@@ -247,10 +255,12 @@ def init():
                 os.rename("./vault/" + finalname + "." + ext + ".gz", finalname + "." + ext)
             else:
                 os.rename("./vault/" + finalname + "." + ext + ".gz", finalname)
-            print("The decrypted file is saved in the root folder of this program.")
-        else:
+            print("The decrypted file is saved in the `out` folder.")
+        elif choice == "4":
             name = input("Move file to the 'vault' folder and type the name here: ")
             decompress(name)
-            print("The decompressed file is saved in the root folder of this program.")
+            print("The decompressed file is saved in the `out` folder.")
+	else:
+            print("Invalid choice. Quitting.")
 
 init()
