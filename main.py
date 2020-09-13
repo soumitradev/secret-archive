@@ -62,6 +62,8 @@ def decrypt(filename, ext):
     if datapath.exists():
         with open(datapath, 'rb') as dec:
             decrypted_data = gpg.decrypt_file(dec, output = "./vault/" + datapath.name + (("." + ext) if ext else "") + ".gz")
+        if not Path("./vault/" + datapath.name + (("." + ext) if ext else "") + ".gz").exists():
+            raise Exception("No key found for file.")
     else:
         raise IOError("No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
 
@@ -208,8 +210,8 @@ def init():
         encrypt((finalname + ".gz"), finalname)
         os.remove("./vault/" + finalname + ".gz")
         addtoreg(finalname, ext)
-	print("FIle encrypted and saved in vault successfully.")
-	return
+        print("FIle encrypted and saved in vault successfully.")
+        return
     elif k == "2":
         print("Choose:")
         reg = getreg()
@@ -227,7 +229,8 @@ def init():
 
         # os.remove("./vault/" + names[num])
         updatereg()
-	print("File decrypted and saved in `out` folder successfully.")
+        print("File decrypted and saved in `out` folder successfully.")
+        return
     else:
         print("Which function do you want to force run?")
         print("[1] - Compress file\n[2] - Encrypt file\n[3] - Decrypt file\n[4] - Decompress file")
@@ -260,7 +263,7 @@ def init():
             name = input("Move file to the 'vault' folder and type the name here: ")
             decompress(name)
             print("The decompressed file is saved in the `out` folder.")
-	else:
+        else:
             print("Invalid choice. Quitting.")
 
 init()
