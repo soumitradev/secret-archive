@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 from pathlib import Path
+import tarfile
 
 GNUPG_HOME = "./keys/"
 VAULT_DIR = "./vault/"
@@ -50,7 +51,7 @@ def compress(filename, saveasname, method="gzip"):
 
 
 def encrypt(filename, saveasname):
-    vaultpath = Path("./vault/")
+    vaultpath = Path(VAULT_DIR)
     datapath = vaultpath / filename
     if datapath.exists():
         gpg = gnupg.GPG(gnupghome=GNUPG_HOME)
@@ -84,13 +85,11 @@ def decrypt(filename, ext, method="gzip"):
             "No such file! Please enter a valid filename, or ensure the file is in the 'vault' folder")
 
 
-def decompress(filename, method="gzip"):
+def decompress(filename, method="gzip", is_dir=False):
     vaultpath = Path("./vault/")
     datapath = vaultpath / filename
     output_dir = Path(OUT_PATH)
     fin_name = datapath.stem
-
-    print(datapath)
 
     # if "." in datapath.stem:
     #     original_extension = "." + datapath.stem.split(".")[-1]
@@ -102,11 +101,11 @@ def decompress(filename, method="gzip"):
     if datapath.exists():
         if method == "gzip":
             with gzip.open(datapath, "rb") as f:
-                with open(output_dir / fin_name, "wb") as fp:
+                with open(output_dir / (fin_name + (".tar" if is_dir else "")), "wb") as fp:
                     shutil.copyfileobj(f, fp)
         elif method == "lzma":
             with lzma.open(datapath, "rb") as f:
-                with open(output_dir / fin_name, "wb") as fp:
+                with open(output_dir / (fin_name + (".tar" if is_dir else "")), "wb") as fp:
                     shutil.copyfileobj(f, fp)
         else:
             raise ValueError("Unknown compression method specified")
@@ -161,7 +160,7 @@ def getpropername(name, extension):
 
 
 # Our registry will be in the form of a dictionary. final name is key, and original extension is value.
-def addtoreg(final, originalext, method="gz"):
+def addtoreg(final, originalext, method="gz", is_dir=False):
     registry = {}
     regpath = Path("./registry.json")
 
@@ -172,13 +171,15 @@ def addtoreg(final, originalext, method="gz"):
             registry = json.load(regfile)
 
         with open(regpath, "w") as regfile:
-            registry[final] = {"ext": originalext, "method": method}
+            registry[final] = {"ext": originalext,
+                               "method": method, "is_dir": is_dir}
             json.dump(registry, regfile)
 #         If such an encrypted file exists, ask if user wants to rename it.
 #     If registry file doesn't exist, add the file to registry and write it to a new registry file.
     else:
         with open(regpath, "w") as regfile:
-            registry[final] = {"ext": originalext, "method": method}
+            registry[final] = {"ext": originalext,
+                               "method": method, "is_dir": is_dir}
             json.dump(registry, regfile)
 
 
@@ -194,13 +195,13 @@ def updatereg():
         for i in list(vaultpath.glob("*")):
             if not (i.name in registry):
                 print(bcolors.WARNING + "Warning: " + bcolors.ENDC +
-                      "Unidentified file " + i.name + " in vault")
+                      "Unidentified " + ("directory " if i.is_dir() else "file ") + i.name + " in vault")
 
         todel = [k for k in registry.keys() if k not in [
             m.name for m in list(vaultpath.glob("*"))]]
 
         for k in todel:
-            print(bcolors.WARNING + "Warning: " + bcolors.ENDC + "File " +
+            print(bcolors.WARNING + "Warning: " + bcolors.ENDC + ("Directory " if registry[k]['is_dir'] else "File ") +
                   k + " found in registry, but not in the 'vault' folder.")
             # registry.pop(k, None)
 
@@ -218,6 +219,11 @@ def getreg():
             registry = json.load(regfile)
     return registry
 
+def writereg(registry):
+    regpath = Path("./registry.json")
+
+    with open(regpath, "w") as regfile:
+        json.dump(registry, regfile)
 
 def init():
     print("Welcome to Secret Archive! Please choose an action:")
@@ -232,63 +238,102 @@ def init():
         updatereg()
         imports = list(Path(IMPORT_DIR).glob("*"))
         if not imports:
-            FileNotFoundError("No files in `import` folder")
+            raise FileNotFoundError("No files in `import` folder")
         for i, file in enumerate(imports):
-            print("[" + str(i) + "]: " + file.name)
+            print("[" + str(i) + "]: " + file.name + " : " +
+                  ("(folder)" if file.is_dir() else "(file)"))
 
         name = input(":")
         while not name.isnumeric() or name not in map(str, range(len(imports))):
             print("Please enter a valid choice from the list")
             name = input(":")
         name = int(name)
-        name = imports[name].name
-        if "." in name:
-            stem = ".".join(name.split(".")[:-1])
-            ext = name.split(".")[-1]
+        is_dir = imports[name].is_dir()
+        name = imports[name]
+        if "." in name.name:
+            stem = ".".join(name.name.split(".")[:-1])
+            ext = name.name.split(".")[-1]
         else:
             ext = ""
-            stem = name
+            stem = name.name
 
         finalname = getpropername(stem, ext)
 
         while not (method := input("Compression method [gzip / lzma]: ")) in ["lzma", "gzip"]:
             print("Please enter a valid compression method ('gzip' or 'lzma')")
-        compress(name, finalname, method)
+
+        if is_dir:
+            with tarfile.open(str(name) + ".tar", "w") as tarf:
+                tarf.add(name)
+            shutil.rmtree(name, ignore_errors=True)
+            name = Path(str(name) + ".tar")
+
+        compress(name.name, finalname, method)
         encrypt((finalname + (".gz" if method == "gzip" else ".xz")), finalname)
         os.remove("./vault/" + finalname +
                   (".gz" if method == "gzip" else ".xz"))
-        addtoreg(finalname, ext, ("gz" if method == "gzip" else "xz"))
-        print("File encrypted and saved in vault successfully.")
+        os.remove(name)
+        addtoreg(finalname, ext, ("gz" if method == "gzip" else "xz"), is_dir)
+        print(("Folder" if is_dir else "File") +
+              " encrypted and saved in vault successfully.")
         return
     elif k == "2":
-        print("Choose:")
         reg = getreg()
+        print("Choose:")
+
+        if not reg:
+            raise FileNotFoundError("No files in `import` folder")
+        
         names = list(reg.keys())
         exts = [k['ext'] for k in reg.values()]
         methods = [k['method'] for k in reg.values()]
+        are_dirs = [k['is_dir'] for k in reg.values()]
         for i in range(len(reg.keys())):
             if exts[i]:
                 print("[" + str(i) + "]: " + names[i] +
                       " (." + exts[i] + " file)")
             else:
-                print("[" + str(i) + "]: " +
-                      names[i] + " (no extension)")
+                if are_dirs[i]:
+                    print("[" + str(i) + "]: " +
+                        names[i] + " (folder)")
+                else:
+                    print("[" + str(i) + "]: " +
+                        names[i] + " (no extension)")
         num = input(":")
         while not num.isnumeric() or num not in map(str, range(len(reg.keys()))):
             print("Please enter a valid choice from the list")
             num = input(":")
         num = int(num)
-        decrypt(names[num], exts[num], "gzip" if methods[num] == "gz" else "lzma")
+        decrypt(names[num], exts[num],
+                "gzip" if methods[num] == "gz" else "lzma")
         decompress(names[num] + ("." if exts[num] else "") +
-                   exts[num] + (".gz" if methods[num] == "gz" else ".xz"), "gzip" if methods[num] == "gz" else "lzma")
-        os.remove("./vault/" + names[num] + ("." +
-                                             exts[num] if exts[num] else "") + "." + methods[num])
+                   exts[num] + (".gz" if methods[num] == "gz" else ".xz"), "gzip" if methods[num] == "gz" else "lzma", are_dirs[num])
+        os.remove("./vault/" + names[num] + (("." +
+                                              exts[num]) if exts[num] else "") + "." + methods[num])
 
-        # os.remove("./vault/" + names[num])
+        os.remove("./vault/" + names[num])
+        if are_dirs[num]:
+            with tarfile.open(Path(OUT_PATH) / (str(names[num]) + ".tar")) as tarf:
+                tarf.extractall(Path(OUT_PATH))
+            shutil.copytree(str(Path(OUT_PATH)/"import"/ names[num]), str(Path(OUT_PATH)/names[num]))
+            shutil.rmtree(Path(OUT_PATH)/"import", ignore_errors=True)
+            os.remove(Path(OUT_PATH) / (str(names[num]) + ".tar"))
+        
+        # Remove file from registry
+        reg.pop(names[num])
+
+        regpath = Path("./registry.json")
+
+        with open(regpath, "w") as regfile:
+            json.dump(reg, regfile)
+
         updatereg()
-        print("File decrypted and saved in `out` folder successfully.")
+        print(("Folder" if are_dirs[num] else "File") +
+              " decrypted and saved in `out` folder successfully.")
         return
     else:
+        print(bcolors.WARNING + "Warning: " + bcolors.ENDC +
+              "Force running files on existing files can potentially result in data loss if files with the same name already exist.\nPlease make sure that you have a backup your data.")
         print("Which function do you want to force run?")
         print(
             "[1] - Compress file\n[2] - Encrypt file\n[3] - Decrypt file\n[4] - Decompress file")
@@ -304,27 +349,44 @@ def init():
             print("Choose a file to compress from the `import` folder:")
             imports = list(Path(IMPORT_DIR).glob("*"))
             if not imports:
-                FileNotFoundError("No files in `import` folder")
+                raise FileNotFoundError("No files in `import` folder")
             for i, file in enumerate(imports):
-                print("[" + str(i) + "]: " + file.name)
+                print("[" + str(i) + "]: " + file.name + " : " +
+                      ("(folder)" if file.is_dir() else "(file)"))
 
             name = input(":")
             while not name.isnumeric() or name not in map(str, range(len(imports))):
                 print("Please enter a valid choice from the list")
                 name = input(":")
             name = int(name)
-            name = imports[name].name
+            is_dir = imports[name].is_dir()
+            name = imports[name]
             while not (method := input("Compression method [gzip / lzma]: ")) in ["lzma", "gzip"]:
                 print("Please enter a valid compression method ('gzip' or 'lzma')")
-            compress(name, name, method)
+
+            if is_dir:
+                print(bcolors.WARNING + "Warning: " + bcolors.ENDC +
+                      "compressing folders converts the folder to a tarfile. Decompressing this encrypted file will yield a tarfile that needs to be manually untar-ed.")
+                with tarfile.open(str(name) + ".tar", "w") as tarf:
+                    tarf.add(name)
+                shutil.rmtree(name, ignore_errors=True)
+                compress(name.name + ".tar", name.name + ".tar", method)
+                os.remove(str(name) + ".tar")
+                print("The compressed folder is saved in the `vault` folder.")
+                return
+            # Make tarfile if is_dir
+
+            compress(name.name, name.name, method)
             print("The compressed file is saved in the `vault` folder.")
         elif choice == "2":
             print("Choose a file to encrypt from the `vault` folder:")
             imports = list(Path(VAULT_DIR).glob("*"))
+            
             if not imports:
-                FileNotFoundError("No files in `vault` folder")
+                raise FileNotFoundError("No files in `vault` folder")
             for i, file in enumerate(imports):
-                print("[" + str(i) + "]: " + file.name)
+                print("[" + str(i) + "]: " + file.name + " : " +
+                      ("(folder)" if file.is_dir() else "(file)"))
 
             name = input(":")
             while not name.isnumeric() or name not in map(str, range(len(imports))):
@@ -332,15 +394,29 @@ def init():
                 name = input(":")
             name = int(name)
             name = imports[name]
+            is_dir = name.is_dir()
+
+            if is_dir:
+                print(bcolors.WARNING + "Warning: " + bcolors.ENDC +
+                      "encrypting folders converts the folder to a tarfile. Decrypting this encrypted file will yield a tarfile that needs to be manually untar-ed.")
+                with tarfile.open(str(name) + ".tar", "w") as tarf:
+                    tarf.add(name)
+                shutil.rmtree(name, ignore_errors=True)
+                encrypt(name.name + ".tar", name.name)
+                os.remove(str(name) + ".tar")
+                print("The encrypted folder is saved in the `vault` folder.")
+                return
             encrypt(name.name, name.stem)
-            print("The encyrypted file is saved in the `vault` folder.")
+            print("The encrypted file is saved in the `vault` folder.")
+            return
         elif choice == "3":
             print("Choose a file to decrypt from the `vault` folder:")
             imports = list(Path(VAULT_DIR).glob("*"))
             if not imports:
-                FileNotFoundError("No files in `vault` folder")
+                raise FileNotFoundError("No files in `vault` folder")
             for i, file in enumerate(imports):
-                print("[" + str(i) + "]: " + file.name)
+                print("[" + str(i) + "]: " + file.name + " : " +
+                      ("(folder)" if file.is_dir() else "(file)"))
 
             name = input(":")
             while not name.isnumeric() or name not in map(str, range(len(imports))):
@@ -360,12 +436,13 @@ def init():
                           ".gz", "./vault/" + finalname)
             print("The decrypted file is saved in the `vault` folder.")
         elif choice == "4":
-            print("Choose a file to compress from the `vault` folder:")
+            print("Choose a file to decompress from the `vault` folder:")
             imports = list(Path(VAULT_DIR).glob("*"))
             if not imports:
-                FileNotFoundError("No files in `vault` folder")
+                raise FileNotFoundError("No files in `vault` folder")
             for i, file in enumerate(imports):
-                print("[" + str(i) + "]: " + file.name)
+                print("[" + str(i) + "]: " + file.name + " : " +
+                      ("(folder)" if file.is_dir() else "(file)"))
 
             name = input(":")
             while not name.isnumeric() or name not in map(str, range(len(imports))):
